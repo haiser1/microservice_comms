@@ -97,7 +97,7 @@ class BaseServiceClient:
 
     @classmethod
     def _execute_request(
-        cls, method: str, endpoint: str, **kwargs
+        cls, method: str, endpoint: str, need_hmac_header=True, **kwargs
     ) -> requests.Response:
         """
         Executes the request and handles standard response logic.
@@ -118,7 +118,12 @@ class BaseServiceClient:
 
         try:
             response = send_internal_request(
-                method, full_url, service_id=cls.SERVICE_ID, secret=cls.SECRET, **kwargs
+                method,
+                full_url,
+                service_id=cls.SERVICE_ID,
+                secret=cls.SECRET,
+                need_hmac_header=need_hmac_header,
+                **kwargs,
             )
 
             if 200 <= response.status_code < 300:
