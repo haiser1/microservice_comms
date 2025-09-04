@@ -1,3 +1,7 @@
+"""
+This module provides functions for generating HMAC headers for internal service requests and API Key headers.
+"""
+
 import hashlib
 import hmac
 import time

@@ -1,3 +1,7 @@
+"""
+This module provides a shared HTTP session with Circuit Breaker and retry capabilities.
+"""
+
 import logging
 
 import pybreaker
@@ -18,6 +22,10 @@ breaker = pybreaker.CircuitBreaker(
 
 
 class BreakerAdapter(HTTPAdapter):
+    """
+    Custom HTTP adapter that uses Circuit Breaker for retrying failed requests.
+    """
+
     def send(self, request, **kwargs):
         return breaker.call(super().send, request, **kwargs)
 
@@ -26,7 +34,18 @@ def create_shared_session(
     max_retry=DEFAULT_MAX_RETRY, backoff_factor=1, status_forcelist=None
 ):
     """
-    Menciptakan sebuah requests.Session yang tangguh.
+    Create a shared HTTP session with Circuit Breaker and retry capabilities.
+
+    Args:
+        max_retry (int): Maximum number of retries. Default is 3.
+        backoff_factor (float): Backoff factor for exponential backoff. Default is 1.
+        status_forcelist (list): List of status codes to force retry. Default is [429, 500, 502, 503, 504].
+
+    Returns:
+        requests.Session: A shared HTTP session with Circuit Breaker and retry capabilities.
+
+    Raises:
+        Exception: If there is an error initializing the shared HTTP session.
     """
     if status_forcelist is None:
         status_forcelist = [429, 500, 502, 503, 504]
@@ -62,5 +81,4 @@ def create_shared_session(
         return requests.Session()
 
 
-# Buat satu instance session untuk digunakan di seluruh library
 http_session = create_shared_session()
