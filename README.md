@@ -16,4 +16,62 @@ A shared Python library designed to standardize and simplify communication betwe
 
 ## Installation
 
-add `microservice_comms @ git+ssh://git@github.com:haiser1/microservice_comms.git@v0.1.0` to your requirements.txt file and install the library using `pip install -r requirements.txt`.
+### Option 1: Add to `requirements.txt`
+
+Add the following line to your project's `requirements.txt` file to manage it as a dependency:
+
+`microservice_comms @ git+https://github.com/haiser1/microservice_comms.git@v0.2.0`
+
+Then, install all dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Option 2: Direct Install
+
+To install it directly from the command line, run this command:
+
+```bash
+pip install git+[https://github.com/haiser1/microservice_comms.git@v0.2.0](https://github.com/haiser1/microservice_comms.git@v0.2.0)
+```
+
+## How to Use
+
+First, create a specific client for the service you want to communicate with by inheriting from BaseServiceClient.
+
+```python
+# my_service_client.py
+from microservice_comms import BaseServiceClient
+
+class MyServiceClient(BaseServiceClient):
+    BASE_URL = "[https://my-service.com](https://my-service.com)"
+    SERVICE_ID = "my-service-id"
+    SECRET = "my-secret-key"
+
+    def get_user(self, user_id):
+        # The _execute_request method is inherited and handles all the magic
+        return self._execute_request("GET", f"/users/{user_id}")
+```
+
+Then, use your new client in your application and handle the specific exceptions provided by the library.
+
+```python
+# main.py
+from my_service_client import MyServiceClient
+# Import exceptions directly from the library
+from microservice_comms import InternalServiceError, NotFound, BadRequest, ServiceError
+
+client = MyServiceClient()
+
+try:
+    response = client.get_user("123")
+    user_data = response.json()
+    print(user_data)
+except NotFound:
+    print("User with ID 123 was not found.")
+except InternalServiceError as e:
+    print(f"A network or service connectivity error occurred: {e}")
+except ServiceError as e:
+    print(f"An unexpected error occurred from the service: {e}")
+```

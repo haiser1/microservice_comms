@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="microservice_comms",
-    version="0.2.0",
+    version="0.2.1",
     author="Markus Ganteng dan Intelek",
     author_email="markus.rabin.r@gmail.com",
     description="A shared library for internal microservice communication.",
