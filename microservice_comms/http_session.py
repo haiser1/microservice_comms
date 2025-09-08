@@ -1,84 +1,95 @@
-"""
-This module provides a shared HTTP session with Circuit Breaker and retry capabilities.
-"""
-
+import functools
 import logging
+from collections import defaultdict
 
 import pybreaker
 import requests
+from gevent.local import local
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-# Konfigurasi default, bisa di-override
+DEFAULT_TIMEOUT = (3, 10)  # connect, read
+DEFAULT_MAX_RETRY = 3
 DEFAULT_FAIL_MAX = 5
 DEFAULT_RESET_TIMEOUT = 60
-DEFAULT_MAX_RETRY = 3
 
-breaker = pybreaker.CircuitBreaker(
-    fail_max=DEFAULT_FAIL_MAX, reset_timeout=DEFAULT_RESET_TIMEOUT
+_local = local()
+_breakers = defaultdict(
+    lambda: pybreaker.CircuitBreaker(
+        fail_max=DEFAULT_FAIL_MAX, reset_timeout=DEFAULT_RESET_TIMEOUT
+    )
 )
 
 
 class BreakerAdapter(HTTPAdapter):
-    """
-    Custom HTTP adapter that uses Circuit Breaker for retrying failed requests.
-    """
+    def __init__(self, host, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.host = host
 
     def send(self, request, **kwargs):
+        host = request.url.split("/")[2]
+        breaker = _breakers[host]
         return breaker.call(super().send, request, **kwargs)
 
 
-def create_shared_session(
-    max_retry=DEFAULT_MAX_RETRY, backoff_factor=1, status_forcelist=None
-):
+def create_session(base_url: str):
     """
-    Create a shared HTTP session with Circuit Breaker and retry capabilities.
+    Creates a requests session object with a default timeout and a CircuitBreaker-protected adapter.
 
-    Args:
-        max_retry (int): Maximum number of retries. Default is 3.
-        backoff_factor (float): Backoff factor for exponential backoff. Default is 1.
-        status_forcelist (list): List of status codes to force retry. Default is [429, 500, 502, 503, 504].
+    The session is configured to retry up to DEFAULT_MAX_RETRY times with a backoff of 1 second.
+    The following status codes are considered failed attempts:
+    - 429 (Too Many Requests)
+    - 500 (Internal Server Error)
+    - 502 (Bad Gateway)
+    - 503 (Service Unavailable)
+    - 504 (Gateway Timeout)
 
-    Returns:
-        requests.Session: A shared HTTP session with Circuit Breaker and retry capabilities.
+    The session is also configured to use a CircuitBreaker with:
+    - DEFAULT_FAIL_MAX failures before breaking the circuit
+    - DEFAULT_RESET_TIMEOUT seconds before resetting the circuit
 
-    Raises:
-        Exception: If there is an error initializing the shared HTTP session.
+    :param base_url: The base URL of the service to connect to.
+    :return: A requests session object.
     """
-    if status_forcelist is None:
-        status_forcelist = [429, 500, 502, 503, 504]
+    retry_strategy = Retry(
+        total=DEFAULT_MAX_RETRY,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    )
 
-    try:
-        retry_strategy = Retry(
-            total=max_retry,
-            backoff_factor=backoff_factor,
-            status_forcelist=status_forcelist,
-            allowed_methods=[
-                "HEAD",
-                "GET",
-                "POST",
-                "PUT",
-                "DELETE",
-                "OPTIONS",
-                "PATCH",
-            ],
-        )
-        adapter = BreakerAdapter(max_retries=retry_strategy)
+    host = base_url.split("/")[2]
+    adapter = BreakerAdapter(
+        host, max_retries=retry_strategy, pool_connections=50, pool_maxsize=50
+    )
 
-        http_session = requests.Session()
-        http_session.mount("http://", adapter)
-        http_session.mount("https://", adapter)
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
 
-        logger.info("HTTP session with Circuit Breaker and retry has been initialized.")
-        return http_session
-    except Exception as e:
-        logger.error(f"Failed to initialize shared HTTP session: {e}", exc_info=True)
-        logger.warning(
-            "Falling back to a standard HTTP session without retry capabilities."
-        )
-        return requests.Session()
+    # enforce default timeout
+    original_request = session.request
+    session.request = functools.partial(original_request, timeout=DEFAULT_TIMEOUT)
+    return session
 
 
-http_session = create_shared_session()
+def get_session(base_url: str) -> requests.Session:
+    """
+    Returns a requests session object for the given base_url.
+
+    The session will be persisted for the lifetime of the current greenlet.
+    If the session does not exist yet, it will be created with a default timeout
+    and a CircuitBreaker-protected adapter.
+
+    :param base_url: The base URL of the service to connect to.
+    :return: A requests session object.
+    """
+    if not hasattr(_local, "sessions"):
+        _local.sessions = {}
+
+    host = base_url.split("/")[2]
+    if host not in _local.sessions:
+        _local.sessions[host] = create_session(base_url)
+    return _local.sessions[host]

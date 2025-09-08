@@ -8,7 +8,7 @@ import requests
 
 from .auth import generate_api_key_header, generate_internal_headers
 from .errors import BadRequest, InternalServiceError, NotFound, ServiceError
-from .http_session import http_session
+from .http_session import get_session
 
 logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 15
@@ -50,7 +50,8 @@ def send_internal_request(
 
         headers.update(auth_headers)
 
-        response = http_session.request(
+        session = get_session(url)
+        response = session.request(
             method=method.upper(), url=url, headers=headers, timeout=timeout, **kwargs
         )
         return response
@@ -105,6 +106,7 @@ class BaseServiceClient:
         Args:
             method (str): The HTTP method to use for the request.
             endpoint (str): The endpoint to make the request to.
+            need_hmac_header (bool, optional): Whether to include HMAC headers. Defaults to True.
 
         Returns:
             requests.Response: The response from the request.

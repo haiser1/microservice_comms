@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="microservice_comms",
-    version="1.2.1",
+    version="1.3.1",
     author="Markus Ganteng dan Intelek",
     author_email="markus.rabin.r@gmail.com",
     description="A shared library for internal microservice communication.",
@@ -14,6 +14,7 @@ setup(
         "requests>=2.20.0",
         "pybreaker>=0.6.0",
     ],
+    extras_require={"gevent": ["gevent>=21.12.0"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

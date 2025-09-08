@@ -11,6 +11,7 @@ A shared Python library designed to standardize and simplify communication betwe
 - **Automatic Retries**: Automatically retries failed requests (e.g., `5xx` status codes) with a configurable backoff strategy.
 - **Circuit Breaker**: Prevents the application from repeatedly trying to execute an operation that is likely to fail. After a set number of failures, the breaker trips and subsequent calls fail instantly for a configured timeout period.
 - **Centralized Error Handling**: Provides a consistent set of custom exceptions for common HTTP errors (`404 Not Found`, `400 Bad Request`, etc.).
+- **Concurrency Safe**: Designed for high-concurrency environments like Gunicorn with `gevent` workers, ensuring thread and greenlet safety for HTTP sessions.
 
 ---
 
@@ -20,7 +21,7 @@ A shared Python library designed to standardize and simplify communication betwe
 
 Add the following line to your project's `requirements.txt` file to manage it as a dependency:
 
-`microservice_comms @ git+https://github.com/haiser1/microservice_comms.git@v0.2.0`
+`microservice_comms @ git+https://github.com/haiser1/microservice_comms.git@v1.3.1`
 
 Then, install all dependencies:
 
@@ -28,13 +29,28 @@ Then, install all dependencies:
 pip install -r requirements.txt
 ```
 
+_(Note: Remember to replace `v1.3.1` with the latest version tag you want to use.)_
+
+Then, install all dependencies from the file:
+
+````bash
+pip install -r requirements.txt
+
 ### Option 2: Direct Install
 
 To install it directly from the command line, run this command:
 
 ```bash
-pip install git+[https://github.com/haiser1/microservice_comms.git@v0.2.0](https://github.com/haiser1/microservice_comms.git@v0.2.0)
-```
+pip install git+[https://github.com/haiser1/microservice_comms.git@v1.3.1](https://github.com/haiser1/microservice_comms.git@v1.3.1)
+````
+
+## Concurrency & gevent Compatibility
+
+This library is designed to be thread-safe and greenlet-safe, making it suitable for high-concurrency applications.
+
+It internally uses gevent.local to manage requests.Session objects. This ensures that each greenlet (e.g., a Gunicorn worker) gets its own isolated HTTP session, preventing race conditions and ensuring connection pool integrity.
+
+While optimized for gevent, the library does not require it and will function correctly in standard multi-threaded or multi-process environments.
 
 ## How to Use
 
