@@ -21,7 +21,7 @@ A shared Python library designed to standardize and simplify communication betwe
 
 Add the following line to your project's `requirements.txt` file to manage it as a dependency:
 
-`microservice_comms @ git+https://github.com/haiser1/microservice_comms.git@v1.3.1`
+`microservice_comms @ git+https://github.com/haiser1/microservice_comms.git@v1.4.1`
 
 Then, install all dependencies:
 
@@ -31,18 +31,13 @@ pip install -r requirements.txt
 
 _(Note: Remember to replace `v1.3.1` with the latest version tag you want to use.)_
 
-Then, install all dependencies from the file:
-
-````bash
-pip install -r requirements.txt
-
 ### Option 2: Direct Install
 
 To install it directly from the command line, run this command:
 
 ```bash
-pip install git+[https://github.com/haiser1/microservice_comms.git@v1.3.1](https://github.com/haiser1/microservice_comms.git@v1.3.1)
-````
+pip install git+[https://github.com/haiser1/microservice_comms.git@v1.4.1](https://github.com/haiser1/microservice_comms.git@v1.3.1)
+```
 
 ## Concurrency & gevent Compatibility
 
