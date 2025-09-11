@@ -30,6 +30,7 @@ pip install -r requirements.txt
 ```
 
 _(Note: Remember to replace `v1.4.1` with the latest version tag you want to use.)_
+_(Note: Remember to replace `v1.3.1` with the latest version tag you want to use.)_
 
 ### Option 2: Direct Install
 
