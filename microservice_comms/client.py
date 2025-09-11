@@ -131,9 +131,22 @@ class BaseServiceClient:
             if 200 <= response.status_code < 300:
                 return response
             elif response.status_code == 400:
-                raise BadRequest(f"Bad request to {full_url}: {response.text}")
+                try:
+                    error_message = response.json().get("message", "Bad Request")
+                    raise BadRequest(f"{error_message}")
+                except ValueError:
+                    error_message = f"Bad Request at {full_url} with non-JSON response. {response.text}"
+                    raise BadRequest(error_message)
+
             elif response.status_code == 404:
-                raise NotFound(f"Resource not found at {full_url}.")
+                try:
+                    error_message = response.json().get(
+                        "message", "Resource not found."
+                    )
+                    raise NotFound(f"{error_message}")
+                except ValueError:
+                    error_message = f"Resource not found at {full_url} with non-JSON response. {response.text}"
+                    raise NotFound(error_message)
             else:
                 raise ServiceError(
                     f"Service returned an unexpected status {response.status_code} at {full_url}: {response.text}"
