@@ -95,6 +95,7 @@ def send_bulk_internal_requests(
 
             kwargs.pop("method", None)
             kwargs.pop("url", None)
+            kwargs.pop("endpoint", None)
 
             headers = kwargs.pop("headers", {})
             need_hmac = kwargs.pop("need_hmac_header", True)
