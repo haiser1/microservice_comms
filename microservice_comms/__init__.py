@@ -1,4 +1,8 @@
-from .client import BaseServiceClient, send_internal_request
+from .client import (
+    BaseServiceClient,
+    send_bulk_internal_requests,
+    send_internal_request,
+)
 from .errors import (
     BadRequest,
     InternalServiceError,
@@ -7,7 +11,7 @@ from .errors import (
     ServiceError,
 )
 
-__version__ = "1.4.1"
+__version__ = "1.5.1"
 
 __all__ = [
     "send_internal_request",
@@ -17,4 +21,5 @@ __all__ = [
     "BadRequest",
     "ServiceError",
     "BaseServiceClient",
+    "send_bulk_internal_requests",
 ]
