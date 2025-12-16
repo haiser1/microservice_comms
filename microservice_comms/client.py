@@ -4,8 +4,12 @@ This module provides a base client class for making requests to internal service
 
 import logging
 
-import grequests
 import requests
+
+try:
+    from gevent.pool import Pool
+except ImportError:
+    raise RuntimeError("gevent is required to use this module.")
 
 from .auth import generate_api_key_header, generate_internal_headers
 from .errors import BadRequest, InternalServiceError, NotFound, ServiceError
@@ -68,31 +72,47 @@ def send_internal_request(
         raise e
 
 
+def _perform_single_request(session, method, url, **kwargs):
+    """
+    Fungsi worker yang akan dijalankan di dalam Greenlet.
+    """
+    try:
+        # Karena sudah di-monkey-patch, baris ini NON-BLOCKING
+        response = session.request(method, url, **kwargs)
+        return response
+    except Exception as e:
+        logger.error(f"Bulk request to {url} failed: {e}")
+        # Return None atau object Error custom agar urutan result tetap terjaga
+        return None
+
+
 def send_bulk_internal_requests(
     requests_data: list, service_id: str, secret: str, default_timeout=DEFAULT_TIMEOUT
 ):
     """
-    Sends multiple internal requests in parallel using grequests.
+    Sends multiple internal requests in parallel using native Gevent Pool + requests.
 
     Args:
-        requests_data (list): A list of dictionaries, where each dict contains
-                              details for a single request (e.g., 'method', 'url', 'json').
-        service_id (str): The service ID for authentication.
-        secret (str): The secret key for authentication.
-        default_timeout (int): The timeout for each request.
+        requests_data (list): A list of dictionaries containing request details.
+        service_id (str): The service ID used for authentication.
+        secret (str): The secret used for authentication.
+        default_timeout (int, optional): The default timeout for requests. Defaults to DEFAULT_TIMEOUT.
 
     Returns:
-        list: A list of `requests.Response` objects or None for failed requests.
+        list: A list of responses from the requests.
     """
-    prepared_requests = []
+
+    pool = Pool(10)
+    jobs = []
+
     sessions = {}
 
     for req_data in requests_data:
         try:
             method = req_data.get("method", "GET").upper()
             url = req_data["url"]
-            kwargs = req_data.copy()
 
+            kwargs = req_data.copy()
             kwargs.pop("method", None)
             kwargs.pop("url", None)
             kwargs.pop("endpoint", None)
@@ -101,6 +121,7 @@ def send_bulk_internal_requests(
             need_hmac = kwargs.pop("need_hmac_header", True)
             timeout = kwargs.pop("timeout", default_timeout)
 
+            # Auth Headers
             if need_hmac:
                 auth_headers = generate_internal_headers(
                     method, url, service_id, secret
@@ -114,10 +135,12 @@ def send_bulk_internal_requests(
                 sessions[host] = get_session(url)
             session = sessions[host]
 
-            req = grequests.AsyncRequest(
-                method, url, headers=headers, session=session, timeout=timeout, **kwargs
+            request_kwargs = {"headers": headers, "timeout": timeout, **kwargs}
+
+            job = pool.spawn(
+                _perform_single_request, session, method, url, **request_kwargs
             )
-            prepared_requests.append(req)
+            jobs.append(job)
 
         except Exception as e:
             logger.error(
@@ -125,13 +148,16 @@ def send_bulk_internal_requests(
                 exc_info=True,
             )
 
-    if not prepared_requests:
+            continue
+
+    if not jobs:
         return []
 
-    def exception_handler(request, exception):
-        logger.error(f"Bulk request to {request.url} failed: {exception}")
+    pool.join()
 
-    return grequests.map(prepared_requests, exception_handler=exception_handler)
+    results = [job.value for job in jobs]
+
+    return results
 
 
 class BaseServiceClient:

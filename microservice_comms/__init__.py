@@ -11,7 +11,7 @@ from .errors import (
     ServiceError,
 )
 
-__version__ = "1.6.2"
+__version__ = "1.7.2"
 
 __all__ = [
     "send_internal_request",
