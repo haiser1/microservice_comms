@@ -1,26 +1,39 @@
 import functools
 import logging
 from collections import defaultdict
+from http.cookiejar import CookiePolicy
 
 import pybreaker
 import requests
-from gevent.local import local
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = (3, 10)  # connect, read
+DEFAULT_TIMEOUT = (3.05, 10)  # (connect, read)
 DEFAULT_MAX_RETRY = 3
 DEFAULT_FAIL_MAX = 5
 DEFAULT_RESET_TIMEOUT = 60
 
-_local = local()
+# --- GLOBAL SESSION CACHE ---
+# Global session cache
+_session_cache = {}
+
+# Circuit Breaker Store
 _breakers = defaultdict(
     lambda: pybreaker.CircuitBreaker(
         fail_max=DEFAULT_FAIL_MAX, reset_timeout=DEFAULT_RESET_TIMEOUT
     )
 )
+
+
+# --- BLOCK ALL COOKIES ---
+class BlockAllCookies(CookiePolicy):
+    return_ok = set_ok = domain_return_ok = path_return_ok = (
+        lambda self, *args, **kwargs: False
+    )
+    netscape = True
+    rfc2965 = hide_cookie2 = False
 
 
 class BreakerAdapter(HTTPAdapter):
@@ -36,38 +49,37 @@ class BreakerAdapter(HTTPAdapter):
 
 def create_session(base_url: str):
     """
-    Creates a requests session object with a default timeout and a CircuitBreaker-protected adapter.
+    Creates a requests session object for the given base_url.
 
-    The session is configured to retry up to DEFAULT_MAX_RETRY times with a backoff of 1 second.
-    The following status codes are considered failed attempts:
-    - 429 (Too Many Requests)
-    - 500 (Internal Server Error)
-    - 502 (Bad Gateway)
-    - 503 (Service Unavailable)
-    - 504 (Gateway Timeout)
+    The session object is configured with:
+    - A retry strategy that retries up to DEFAULT_MAX_RETRY times with a backoff factor of 0.5.
+    - A circuit breaker that trips after DEFAULT_FAIL_MAX failures within DEFAULT_RESET_TIMEOUT seconds.
+    - A block-all-cookies policy to prevent session leaks between users.
+    - A default timeout of DEFAULT_TIMEOUT seconds.
 
-    The session is also configured to use a CircuitBreaker with:
-    - DEFAULT_FAIL_MAX failures before breaking the circuit
-    - DEFAULT_RESET_TIMEOUT seconds before resetting the circuit
-
-    :param base_url: The base URL of the service to connect to.
+    :param base_url: The base URL of the service.
     :return: A requests session object.
     """
     retry_strategy = Retry(
         total=DEFAULT_MAX_RETRY,
-        backoff_factor=1,
+        backoff_factor=0.5,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        raise_on_status=False,
     )
 
     host = base_url.split("/")[2]
     adapter = BreakerAdapter(
-        host, max_retries=retry_strategy, pool_connections=50, pool_maxsize=50
+        host, max_retries=retry_strategy, pool_connections=20, pool_maxsize=20
     )
 
     session = requests.Session()
     session.mount("http://", adapter)
     session.mount("https://", adapter)
+
+    # SAFETY: BLOCK COOKIES
+    session.cookies.set_policy(BlockAllCookies())
+    session.auth = None
 
     # enforce default timeout
     original_request = session.request
@@ -77,19 +89,48 @@ def create_session(base_url: str):
 
 def get_session(base_url: str) -> requests.Session:
     """
-    Returns a requests session object for the given base_url.
+    Retrieves a requests session object from the global session cache for a given base_url.
 
-    The session will be persisted for the lifetime of the current greenlet.
-    If the session does not exist yet, it will be created with a default timeout
-    and a CircuitBreaker-protected adapter.
+    If the given base_url is not found in the global session cache, a new session object
+    will be created and stored in the cache.
 
-    :param base_url: The base URL of the service to connect to.
-    :return: A requests session object.
+    Args:
+        base_url (str): The base URL of the service to retrieve the session for.
+
+    Returns:
+        requests.Session: The session object for the given base_url.
     """
-    if not hasattr(_local, "sessions"):
-        _local.sessions = {}
-
     host = base_url.split("/")[2]
-    if host not in _local.sessions:
-        _local.sessions[host] = create_session(base_url)
-    return _local.sessions[host]
+
+    # Check cache global
+    if host not in _session_cache:
+        _session_cache[host] = create_session(base_url)
+
+    return _session_cache[host]
+
+
+def invalidate_session(base_url: str):
+    """
+    Invalidates and closes a session pool for a given base_url.
+
+    If the given base_url is found in the global session cache, it will be closed
+    and removed from the cache. This is useful when encountering connection errors
+    to a particular host.
+
+    Args:
+        base_url (str): The base URL of the service to invalidate the session for.
+
+    Returns:
+        None
+    """
+    host = base_url.split("/")[2]
+
+    if host in _session_cache:
+        logger.warning(
+            f"Invalidating and closing session pool for host: {host} due to connection errors."
+        )
+        try:
+            old_session = _session_cache.pop(host)
+            old_session.close()
+        except Exception as e:
+            logger.error(f"Error closing session for {host}: {e}")

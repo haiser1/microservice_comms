@@ -13,7 +13,7 @@ except ImportError:
 
 from .auth import generate_api_key_header, generate_internal_headers
 from .errors import BadRequest, InternalServiceError, NotFound, ServiceError
-from .http_session import get_session
+from .http_session import get_session, invalidate_session
 
 logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 10
@@ -59,9 +59,17 @@ def send_internal_request(
         response = session.request(
             method=method.upper(), url=url, headers=headers, timeout=timeout, **kwargs
         )
+
+        # self healing session if status code >= 500
+        if response.status_code >= 500:
+            logger.warning(
+                f"Got {response.status_code} from {url}. Invalidating session."
+            )
+            invalidate_session(url)
         return response
 
     except requests.exceptions.RequestException as e:
+        invalidate_session(url)
         error_message = (
             f"Failed to connect to {method.upper()} {url} after all retries. Error: {e}"
         )
@@ -72,17 +80,40 @@ def send_internal_request(
         raise e
 
 
-def _perform_single_request(session, method, url, **kwargs):
+def _perform_single_request(method, url, **kwargs):
     """
-    Fungsi worker yang akan dijalankan di dalam Greenlet.
+    Performs a single request to the given URL using the provided session.
+
+    Args:
+        session (requests.Session): The session to use for the request.
+        method (str): The HTTP method to use for the request.
+        url (str): The URL to make the request to.
+        **kwargs: Additional keyword arguments to pass to the requests library.
+
+    Returns:
+        requests.Response or None: The response from the request if successful, None otherwise.
+
+    Raises:
+        None
     """
+    session = get_session(url)
     try:
-        # Karena sudah di-monkey-patch, baris ini NON-BLOCKING
         response = session.request(method, url, **kwargs)
+        if response.status_code >= 500:
+            logger.warning(
+                f"Bulk request got {response.status_code} from {url}. Invalidating session."
+            )
+            invalidate_session(url)
         return response
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Bulk request network error to {url}: {e}")
+        invalidate_session(url)
+        return None
+
     except Exception as e:
         logger.error(f"Bulk request to {url} failed: {e}")
-        # Return None atau object Error custom agar urutan result tetap terjaga
+
         return None
 
 
@@ -104,8 +135,6 @@ def send_bulk_internal_requests(
 
     pool = Pool(10)
     jobs = []
-
-    sessions = {}
 
     for req_data in requests_data:
         try:
@@ -130,16 +159,9 @@ def send_bulk_internal_requests(
                 auth_headers = generate_api_key_header(secret, service_id)
             headers.update(auth_headers)
 
-            host = url.split("/")[2]
-            if host not in sessions:
-                sessions[host] = get_session(url)
-            session = sessions[host]
-
             request_kwargs = {"headers": headers, "timeout": timeout, **kwargs}
 
-            job = pool.spawn(
-                _perform_single_request, session, method, url, **request_kwargs
-            )
+            job = pool.spawn(_perform_single_request, method, url, **request_kwargs)
             jobs.append(job)
 
         except Exception as e:
